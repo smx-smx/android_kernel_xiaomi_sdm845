@@ -18,6 +18,7 @@
 #include <linux/vmalloc.h>
 #include <linux/slab.h>
 #include <linux/efi.h>
+#include <linux/io.h>
 #include <linux/mman.h>
 
 #include "kexec_internal.h"
@@ -341,6 +342,20 @@ typedef enum {
         EfiMaxMemoryType
 } EFI_MEMORY_TYPE;
 
+typedef enum {
+        /* Allocate any available range of pages that satisfies the request. */
+        AllocateAnyPages,
+
+        /* Allocate any available range of pages whose uppermost address is less 
+         * than or equal to a specified maximum address. */
+        AllocateMaxAddress,
+
+        /* Allocate pages at a specified address. */
+        AllocateAddress,
+
+        /* Maximum enumeration value that may be used for bounds checking. */
+        MaxAllocateType
+} EFI_ALLOCATE_TYPE;
 
  /* Basical data type definitions introduced in UEFI. */
 typedef struct {
@@ -920,6 +935,29 @@ char* get_efi_mem_type_str( int mem_type )
         return description;
 }
 
+char* get_efi_allocation_type_str( int allocation_type )
+{
+        char *description = "<None>";
+
+        switch(allocation_type) {
+        case AllocateAnyPages:
+                description = "AllocateAnyPages";
+                break;
+        case AllocateMaxAddress:
+                description = "AllocateMaxAddress";
+                break;
+        case AllocateAddress:
+                description = "AllocateAddress";
+                break;
+        case MaxAllocateType:
+                description = "MaxAllocateType";
+                break;
+        }
+
+        return description;
+}
+
+
 
 int32_t
 CompareGuid (EFI_GUID     *Guid1, EFI_GUID     *Guid2)
@@ -1304,13 +1342,6 @@ __attribute__((ms_abi)) efi_status_t efi_hook_RestoreTPL(void)
          return EFI_UNSUPPORTED;
 }
 
-__attribute__((ms_abi)) efi_status_t efi_hook_AllocatePages(void)
-{
-         DebugMSG( "BOOT SERVICE #2 called" );
-
-         return EFI_UNSUPPORTED;
-}
-
 __attribute__((ms_abi)) efi_status_t efi_hook_FreePages(void)
 {
          DebugMSG( "BOOT SERVICE #3 called" );
@@ -1349,6 +1380,60 @@ __attribute__((ms_abi)) efi_status_t efi_hook_AllocatePool(
          * this to create MemoryMap later on */
 
         return EFI_SUCCESS;
+}
+
+__attribute__((ms_abi)) efi_status_t efi_hook_AllocatePages(
+                                           EFI_ALLOCATE_TYPE     Type,
+                                           EFI_MEMORY_TYPE       MemoryType,
+                                           UINTN                 NumberOfPages,
+                                           efi_physical_addr_t   *Memory )
+{
+        efi_status_t status = EFI_UNSUPPORTED;
+
+        DebugMSG( "Num pages = %lld; Allocation type: %s; "
+                  "Memory type: %s; Requested address = 0x%llx\n",
+                   NumberOfPages,
+                   get_efi_allocation_type_str( Type ),
+                   get_efi_mem_type_str( MemoryType ),
+                   *Memory );
+
+        if ( MemoryType != EfiLoaderData         &&
+             MemoryType != EfiConventionalMemory &&
+             MemoryType != EfiLoaderCode
+             ) {
+                DebugMSG( "Unsupproted MemoryType 0x%x", MemoryType );
+                return EFI_UNSUPPORTED;
+        }
+
+        if ( Type == AllocateAddress ) {
+                /* We reassign the existing physical address to a new vritual
+                 * address. */
+                void* allocation =
+                      memremap( *Memory, NumberOfPages*PAGE_SIZE, MEMREMAP_WB );
+                DebugMSG( "Allocated %px --> 0x%llx", allocation,
+                          virt_to_phys( allocation) );
+
+                efi_setup_11_mapping( allocation, NumberOfPages * PAGE_SIZE );
+
+                /* TODO: maintain bookkeeping of thois allocation for MemMap */
+
+                return EFI_SUCCESS;
+        }
+        else if ( Type == AllocateAnyPages ) {
+                void* phys_allocation = 0;
+
+                DebugMSG( "Calling efi_hook_AllocatePool" );
+                status = efi_hook_AllocatePool( MemoryType,
+                                                NumberOfPages * PAGE_SIZE,
+                                                &phys_allocation);
+
+                *Memory = ( efi_physical_addr_t )phys_allocation;
+
+                return status;
+        }
+
+        DebugMSG( "FAIL! Unknown Type" );
+        return EFI_UNSUPPORTED;
 }
 
 __attribute__((ms_abi)) efi_status_t efi_hook_FreePool(void* buff)

@@ -44,6 +44,7 @@
 		qcom,mdss-dsi-reset-sequence = <0 10>, <1 10>;
 		qcom,mdss-pan-physical-width-dimension = <68>;
 		qcom,mdss-pan-physical-height-dimension = <136>;
+		qcom,cont-splash-enabled;
 		qcom,mdss-dsi-tx-eot-append;
 
 		qcom,mdss-dsi-panel-hdr-enabled;

@@ -575,11 +575,13 @@ static const struct attribute_group attribute_group = {
 	.attrs = attributes,
 };
 
+#if defined(CONFIG_DRM_MSM_DSI_STAGING)
 static void notification_work(struct work_struct *work)
 {
 	pr_debug("%s: unblank\n", __func__);
 	dsi_bridge_interface_enable(FP_UNLOCK_REJECTION_TIMEOUT);
 }
+#endif
 
 
 static irqreturn_t fpc1020_irq_handler(int irq, void *handle)
@@ -625,6 +627,7 @@ static int fpc1020_request_named_gpio(struct fpc1020_data *fpc1020,
 	return 0;
 }
 
+#if defined(CONFIG_DRM)
 static int fpc_fb_notif_callback(struct notifier_block *nb,
 		unsigned long val, void *data)
 {
@@ -666,10 +669,10 @@ static int fpc_fb_notif_callback(struct notifier_block *nb,
 	return NOTIFY_OK;
 }
 
-
 static struct notifier_block fpc_notif_block = {
 	.notifier_call = fpc_fb_notif_callback,
 };
+#endif
 
 static int fpc1020_probe(struct platform_device *pdev)
 {
@@ -750,9 +753,15 @@ static int fpc1020_probe(struct platform_device *pdev)
 
 	fpc1020->fb_black = false;
 	fpc1020->wait_finger_down = false;
+
+#if defined(CONFIG_DRM_MSM_DSI_STAGING)
 	INIT_WORK(&fpc1020->work, notification_work);
+#endif
+
+#if defined(CONFIG_DRM)
 	fpc1020->fb_notifier = fpc_notif_block;
 	drm_register_client(&fpc1020->fb_notifier);
+#endif
 
 	dev_info(dev, "%s: ok\n", __func__);
 
@@ -764,7 +773,9 @@ static int fpc1020_remove(struct platform_device *pdev)
 {
 	struct fpc1020_data *fpc1020 = platform_get_drvdata(pdev);
 
+#if defined(CONFIG_DRM)
 	drm_unregister_client(&fpc1020->fb_notifier);
+#endif
 	sysfs_remove_group(&pdev->dev.kobj, &attribute_group);
 	mutex_destroy(&fpc1020->lock);
 	wakeup_source_trash(&fpc1020->ttw_wl);
